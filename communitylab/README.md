@@ -15,7 +15,7 @@ communitylab/
 │   ├── prompts/        # System prompts for analysis and copywriting
 │   ├── orchestration/  # LangGraph graphs wiring the pipeline together
 │   ├── generators/     # Content generators (summaries, FAQs, posts)
-│   ├── decisions/      # Decision engine / recommendations
+│   ├── decisions/      # Decision engine: member risk, recurring topics, escalation
 │   ├── oci/            # Oracle Cloud Infrastructure integrations
 │   ├── interface/      # Streamlit UI
 │   ├── api/            # HTTP API layer
@@ -144,3 +144,44 @@ python scripts/analyze_sample.py --json out.json  # and dump the enriched record
 ```
 
 The test-suite runs fully offline: LLM calls are replaced by fakes.
+
+## Decision engine
+
+`src/decisions/` turns a batch of `EnrichedMessage` into actions. It is pure
+Python (no LLM calls) so it is deterministic and cheap to run on every batch.
+
+| Rule | Module                | What it does                                                                                  |
+| ---- | --------------------- | --------------------------------------------------------------------------------------------- |
+| R1   | `member_risk.py`      | Flags members with ≥ 1 of 3 signals: negative sentiment, frustration keywords/emotions, inactivity. |
+| R2   | `recurring_topics.py` | Groups doubts by normalised topic; ≥ 3 occurrences → `faq`, `mentorship` or both.               |
+| R3   | `escalation.py`       | Routes every message to `INFO` / `MEDIO` / `ALTO` / `CRÍTICO` from relevance + risk.          |
+|      | `notifications.py`    | Builds level-aware alerts (digest / channel / @mention / DM) with SLA deadlines.               |
+|      | `engine.py`           | `DecisionEngine.run()` coordinates R1–R3 and writes the executive summary.                   |
+|      | `config.py`           | Every threshold in one place (`DecisionConfig`), documented with its rationale.               |
+
+Key defaults (all overridable through `DecisionConfig`):
+
+- **R1** — negative if mean sentiment ≤ −0.3 or ≥ 2 negative messages; frustration if any
+  keyword (EN/ES) or `frustration`/`anger`/… emotion; inactive after 14 days. One signal =
+  `watch`, two = `at_risk`, three = `high`.
+- **R2** — 3 occurrences is the minimum; ≥ 2 distinct authors → FAQ, a single author →
+  mentorship, ≥ 5 occurrences from several people → both.
+- **R3** — relevance boundaries 0.4 / 0.6 / 0.85 mirror the analyzer tiers; sentiment
+  ≤ −0.3 is negative, ≤ −0.7 very negative. Two independent `ALTO` triggers escalate to
+  `CRÍTICO`. SLAs: `CRÍTICO` 2h, `ALTO` 24h, `MEDIO` 72h, `INFO` none.
+
+```python
+from src.decisions import DecisionEngine
+
+report = DecisionEngine().run(enriched)          # enriched: list[EnrichedMessage]
+print(report.executive_summary)
+for action in report.urgent_actions:
+    print(action.level, action.owner, action.title)
+for note in report.notifications:                 # ready for Slack/Discord/n8n
+    print(note.target, note.title)
+```
+
+```bash
+python scripts/analyze_sample.py --json /tmp/enriched.json   # Groq step (needs GROQ_API_KEY)
+python scripts/decide_sample.py /tmp/enriched.json --notifications
+```
