@@ -1,0 +1,8 @@
+streamlit>=1.36
+langgraph>=1.0,<2
+langchain>=1.0,<2
+langchain-groq>=1.0,<2
+pandas>=2.2,<4
+pydantic>=2.7,<3
+pytest>=8.2
+oci>=2.126,<3
