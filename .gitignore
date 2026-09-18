@@ -6,3 +6,4 @@ __pycache__/
 .env
 .ipynb_checkpoints/
 .streamlit/secrets.toml
+communitylab/data/communitylab-activos-marketing/

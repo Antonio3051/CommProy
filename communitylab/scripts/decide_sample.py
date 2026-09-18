@@ -19,35 +19,12 @@ import logging
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.analysis import EnrichedMessage, RelevanceResult, SentimentResult, ThemesResult  # noqa: E402
+from src.analysis import EnrichedMessage  # noqa: E402
 from src.decisions import DecisionEngine, EscalationLevel  # noqa: E402
-from src.ingest.validator import CommunityMessage  # noqa: E402
-
-MESSAGE_FIELDS = tuple(CommunityMessage.model_fields)
-
-
-def _from_record(record: dict[str, Any]) -> EnrichedMessage:
-    """Rebuild an ``EnrichedMessage`` from a flattened ``to_record`` row."""
-    if "message" in record:  # already a model dump
-        return EnrichedMessage.model_validate(record)
-
-    def sub(prefix: str) -> dict[str, Any]:
-        return {k[len(prefix) :]: v for k, v in record.items() if k.startswith(prefix) and v is not None}
-
-    message = CommunityMessage.model_validate({k: record[k] for k in MESSAGE_FIELDS if k in record})
-    sentiment, themes, relevance = sub("sentiment_"), sub("themes_"), sub("relevance_")
-    return EnrichedMessage(
-        message=message,
-        sentiment=SentimentResult.model_validate(sentiment) if sentiment else None,
-        themes=ThemesResult.model_validate(themes) if themes else None,
-        relevance=RelevanceResult.model_validate(relevance) if relevance else None,
-        errors=record.get("errors") or {},
-    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -64,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     payload = json.loads(args.path.read_text(encoding="utf-8"))
-    enriched = [_from_record(r) for r in payload]
+    enriched = [EnrichedMessage.from_record(r) for r in payload]
     if not enriched:
         print("No enriched records found.", file=sys.stderr)
         return 1

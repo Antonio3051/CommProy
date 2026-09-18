@@ -77,6 +77,27 @@ class EnrichedMessage(BaseModel):
         record["analyzed_at"] = self.analyzed_at.isoformat()
         return record
 
+    @classmethod
+    def from_record(cls, record: dict[str, Any]) -> EnrichedMessage:
+        """Inverse of :meth:`to_record`; also accepts a plain ``model_dump`` (with a ``message`` key)."""
+        if "message" in record:
+            return cls.model_validate(record)
+
+        def sub(prefix: str) -> dict[str, Any]:
+            return {k[len(prefix) :]: v for k, v in record.items() if k.startswith(prefix) and v is not None}
+
+        message_fields = {k: record[k] for k in CommunityMessage.model_fields if k in record}
+        sentiment, themes, relevance = sub("sentiment_"), sub("themes_"), sub("relevance_")
+        analyzed_at = record.get("analyzed_at")
+        return cls(
+            message=CommunityMessage.model_validate(message_fields),
+            sentiment=SentimentResult.model_validate(sentiment) if sentiment else None,
+            themes=ThemesResult.model_validate(themes) if themes else None,
+            relevance=RelevanceResult.model_validate(relevance) if relevance else None,
+            errors=dict(record.get("analysis_errors") or record.get("errors") or {}),
+            analyzed_at=datetime.fromisoformat(analyzed_at) if isinstance(analyzed_at, str) else datetime.now(UTC),
+        )
+
 
 class Consolidator:
     """Run the three analyzers over messages and merge their outputs.
