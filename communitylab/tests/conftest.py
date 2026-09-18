@@ -3,13 +3,79 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
+from langchain_core.callbacks import CallbackManagerForLLMRun
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from src.ingest.validator import CommunityMessage
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SAMPLE_MESSAGES = PROJECT_ROOT / "data" / "sample" / "messages.json"
+
+
+class FakeToolChatModel(BaseChatModel):
+    """Offline stand-in for ``ChatGroq`` that supports ``with_structured_output``.
+
+    Every call answers with a single tool call carrying ``payload`` (so the
+    structured-output parser turns it into the requested Pydantic model), or
+    raises ``RuntimeError`` when ``fail`` is set. ``calls`` counts invocations
+    so tests can assert on fallback behaviour.
+    """
+
+    payload: dict[str, Any]
+    name: str = "fake"
+    fail: bool = False
+    calls: int = 0
+    tool_name: str = "structured_output"
+
+    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> FakeToolChatModel:  # noqa: ARG002
+        first = tools[0] if tools else None
+        if isinstance(first, type):
+            self.tool_name = first.__name__
+        elif isinstance(first, dict):
+            self.tool_name = first.get("name") or first.get("function", {}).get("name", self.tool_name)
+        return self
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        self.calls += 1
+        if self.fail:
+            raise RuntimeError(f"{self.name} is down")
+        message = AIMessage(
+            content="",
+            tool_calls=[{"name": self.tool_name, "args": dict(self.payload), "id": "call_1", "type": "tool_call"}],
+        )
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+    @property
+    def _llm_type(self) -> str:
+        return "fake-tool-chat-model"
+
+
+@pytest.fixture
+def community_message() -> CommunityMessage:
+    """A single validated message, ready for the analysis layer."""
+    return CommunityMessage(
+        message_id="m-1",
+        source="discord",
+        channel="help-python",
+        author="alice",
+        author_id="u_1",
+        content="I keep getting ModuleNotFoundError for langgraph even after pip install. Any idea?",
+        timestamp=datetime(2026, 9, 10, 10, 0, tzinfo=UTC),
+        reactions=2,
+    )
 
 
 @pytest.fixture(scope="session")
