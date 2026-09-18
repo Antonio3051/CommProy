@@ -1,0 +1,91 @@
+[
+  {
+    "id": "1287431190524231681",
+    "source": "discord",
+    "channel": "help-python",
+    "author": {
+      "id": "u_48213",
+      "username": "marta.dev"
+    },
+    "content": "Hey everyone! I'm getting `ModuleNotFoundError: No module named 'langgraph'` even though I ran `pip install -r requirements.txt`. I'm on Python 3.12 inside a venv. Any idea what I'm missing? 😕",
+    "timestamp": "2026-09-14T09:12:41Z",
+    "thread_id": null,
+    "reactions": [
+      { "emoji": "👀", "count": 2 }
+    ],
+    "category": "technical_question",
+    "sentiment": "neutral"
+  },
+  {
+    "id": "1287432012938475521",
+    "source": "discord",
+    "channel": "help-python",
+    "author": {
+      "id": "u_10077",
+      "username": "carlos_mentor"
+    },
+    "content": "@marta.dev most of the time that happens because the venv wasn't activated when you ran pip. Try `which python` and `which pip` — if they point to different folders that's your culprit. Run `python -m pip install -r requirements.txt` instead and it'll go into the right interpreter.",
+    "timestamp": "2026-09-14T09:18:03Z",
+    "thread_id": "1287431190524231681",
+    "reactions": [
+      { "emoji": "🙏", "count": 4 },
+      { "emoji": "✅", "count": 1 }
+    ],
+    "category": "technical_answer",
+    "sentiment": "positive"
+  },
+  {
+    "id": "1726300987.004500",
+    "source": "slack",
+    "channel": "#wins",
+    "author": {
+      "id": "U07AB3CD9",
+      "username": "priya.n"
+    },
+    "content": "Huge shout-out to this community 🎉 After 6 weeks of following the data-engineering track I just shipped my first production pipeline at work — ingesting 2M events/day into BigQuery. Couldn't have done it without the code reviews from @carlos_mentor and @lee. Thank you all!!",
+    "timestamp": "2026-09-14T14:03:07Z",
+    "thread_id": null,
+    "reactions": [
+      { "emoji": "tada", "count": 18 },
+      { "emoji": "fire", "count": 9 },
+      { "emoji": "heart", "count": 12 }
+    ],
+    "category": "success_story",
+    "sentiment": "positive"
+  },
+  {
+    "id": "1726311402.118200",
+    "source": "slack",
+    "channel": "#feedback",
+    "author": {
+      "id": "U09ZZ7QQ1",
+      "username": "tomas.r"
+    },
+    "content": "Honestly a bit frustrated. The OCI lab in module 4 has been broken for two weeks now — the compartment OCID in the notebook doesn't exist anymore and nobody has replied to my thread. Is anyone actually maintaining this course? 😤",
+    "timestamp": "2026-09-14T16:56:42Z",
+    "thread_id": null,
+    "reactions": [
+      { "emoji": "eyes", "count": 3 },
+      { "emoji": "+1", "count": 5 }
+    ],
+    "category": "complaint",
+    "sentiment": "negative"
+  },
+  {
+    "id": "1287499018273645570",
+    "source": "discord",
+    "channel": "showcase",
+    "author": {
+      "id": "u_55901",
+      "username": "lee"
+    },
+    "content": "Quick one for the group: I'm comparing Groq's llama-3.1-70b vs gpt-4o-mini for a summarization step in my LangGraph agent. Groq is way faster but I'm seeing more hallucinated dates in the output. Has anyone found a prompt pattern that helps here? Happy to share my eval notebook.",
+    "timestamp": "2026-09-15T08:40:19Z",
+    "thread_id": null,
+    "reactions": [
+      { "emoji": "🤔", "count": 3 }
+    ],
+    "category": "technical_question",
+    "sentiment": "mixed"
+  }
+]
