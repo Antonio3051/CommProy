@@ -68,7 +68,7 @@ class StorageSettings(BaseModel):
         prefix: Optional folder prefix prepended to every object name.
         config_file: OCI config file path.
         profile: Profile inside the config file.
-        local_dir: Fallback directory for local saves.
+        local_dir: Fallback directory for local saves (``$COMMUNITYLAB_LOCAL_DIR`` overrides the default).
         force_local: Skip OCI and always save locally.
     """
 
@@ -79,7 +79,7 @@ class StorageSettings(BaseModel):
     prefix: str = ""
     config_file: str = Field(default_factory=lambda: os.environ.get("OCI_CONFIG_FILE", "~/.oci/config"))
     profile: str = Field(default_factory=lambda: os.environ.get("OCI_CONFIG_PROFILE", "DEFAULT"))
-    local_dir: Path = DEFAULT_LOCAL_DIR
+    local_dir: Path = Field(default_factory=lambda: Path(os.environ.get("COMMUNITYLAB_LOCAL_DIR") or DEFAULT_LOCAL_DIR))
     force_local: bool = Field(
         default_factory=lambda: os.environ.get("COMMUNITYLAB_FORCE_LOCAL", "").lower() in ("1", "true", "yes")
     )

@@ -31,14 +31,110 @@ communitylab/
 └── README.md
 ```
 
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Sources
+        D[Discord] & S[Slack] & W[Webhook / n8n] & F[JSON / CSV]
+    end
+    subgraph Ingestion["Node 1 · ingest"]
+        L[loader.py] --> N[normalizer.py<br/>pandas] --> V[validator.py<br/>pydantic]
+    end
+    subgraph Analysis["Node 2 · analyze (LangChain + Groq)"]
+        SA[sentiment.py] & TH[themes.py] & RE[relevance.py] --> C[consolidator.py]
+    end
+    subgraph Decisions["Node 3 · decide"]
+        R1[member_risk.py<br/>R1] & R2[recurring_topics.py<br/>R2] & R3[escalation.py<br/>R3] --> E[engine.py]
+        E --> NO[notifications.py]
+    end
+    subgraph Generators["Node 4 · generate (conditional)"]
+        LI[linkedin.py] & NL[newsletter.py] & FQ[faq.py] & TE[testimonials.py]
+    end
+    subgraph Storage["Node 5 · store"]
+        OCI[(OCI Object Storage<br/>communitylab-activos-marketing)]
+        LOC[(data/ local fallback)]
+    end
+    subgraph UI["Streamlit · src/interface"]
+        DB[dashboard.py] & CU[curation.py] & AL[alerts.py]
+    end
+
+    Sources --> Ingestion --> Analysis --> Decisions
+    Decisions -- "publishable content?" --> Generators --> Storage
+    Decisions --> Storage
+    Storage --> UI
+    API[api/webhook.py<br/>FastAPI] -. triggers .-> Ingestion
+    BOT[bot/discord_stub.py] -. triggers .-> Ingestion
+    UI -. "Run pipeline" .-> Ingestion
+```
+
+Nodes 1–5 are the LangGraph `StateGraph` in `src/orchestration/router.py`; the UI, the API
+and the bot are three different ways of triggering the same compiled graph.
+
 ## Getting started
 
+Requirements: Python 3.12+.
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+cd communitylab
+python3.12 -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install --upgrade pip
 pip install -r requirements.txt
-pytest
 ```
+
+Optional environment variables:
+
+| Variable | Purpose |
+|----------|---------|
+| `GROQ_API_KEY` | Enables the real analyzers/generators. Without it the UI and CLI fall back to **demo mode** (deterministic mock LLMs in `src/utils/mock_llm.py`). |
+| `OCI_CONFIG_FILE`, `OCI_CONFIG_PROFILE`, `OCI_NAMESPACE`, `COMMUNITYLAB_BUCKET` | OCI Object Storage target (defaults to `~/.oci/config`, `DEFAULT`, bucket `communitylab-activos-marketing`). |
+| `COMMUNITYLAB_FORCE_LOCAL=1` | Skip OCI and always write to the local fallback. |
+| `COMMUNITYLAB_LOCAL_DIR` | Where the local fallback writes (default `data/communitylab-activos-marketing/`). |
+
+### Run the Streamlit app
+
+```bash
+streamlit run src/interface/app.py
+```
+
+The app opens on <http://localhost:8501> with a wide layout and three views in the sidebar:
+
+- **Dashboard** — headline metrics, sentiment trend (day/week/hour), sentiment mix, categories,
+  a word cloud of recurring topics and the executive summary of the selected run.
+- **Curation** — every generated asset (LinkedIn, newsletter, FAQ, testimonials) rendered as
+  Markdown with **Approve / Reject / Reset** buttons and a `.md` download; verdicts are persisted
+  to `curation/status.json` in the same storage.
+- **Alerts** — CRÍTICO/ALTO escalations (filterable down to INFO), members at risk (R1),
+  notifications and required actions from the Decision Engine report.
+
+The UI reads the finalized outputs the `store` node wrote — from the OCI bucket when
+credentials are present, otherwise from the local fallback (toggle *Read from local fallback
+only* to force the latter). The sidebar's **Run LangGraph pipeline** button executes the full
+graph on `data/sample/messages.json`; *Demo mode* (on by default when `GROQ_API_KEY` is unset)
+swaps Groq for the mock LLMs so everything works offline.
+
+### Run the test-suite
+
+```bash
+pytest                 # whole suite, ~3 s, no network
+pytest tests/test_orchestration.py -q
+ruff check . && ruff format --check .
+```
+
+No test calls Groq or OCI: the analysis and generator tests use `FakeToolChatModel`
+(`tests/conftest.py`) or the heuristics in `src/utils/mock_llm.py`, storage tests use
+`StorageSettings(force_local=True)` or an injected fake client, and the Streamlit views are
+exercised headlessly with `streamlit.testing.v1.AppTest`.
+
+| File | Covers |
+|------|--------|
+| `test_ingest.py`, `test_loader.py`, `test_normalizer.py`, `test_validator.py` | Loader → Normalizer → Validator for JSON/CSV/Discord/Slack/webhook |
+| `test_analysis.py`, `test_llm_clients.py`, `test_system_prompts.py`, `test_mock_llm.py` | Structured analyzers, consolidator, Groq client fallback, prompts, mocks |
+| `test_decisions.py` | R1 member risk, R2 recurring topics, R3 escalation, notifications, engine |
+| `test_generators.py`, `test_oci_storage.py` | LinkedIn/newsletter/FAQ/testimonial generators, OCI upload + local fallback |
+| `test_orchestration.py`, `test_api_webhook.py`, `test_discord_stub.py` | LangGraph topology and nodes, FastAPI trigger, Discord stub |
+| `test_interface.py` | Outputs repository, chart/word-cloud helpers, Streamlit app flows |
 
 ## Ingestion layer
 
@@ -266,8 +362,8 @@ and `generated_assets` (plus run metadata, `options` and an append-only `errors`
 `generate` runs only when the Decision Engine flags an R2 topic for a FAQ, or the analysis
 contains a success story / testimonial candidate / newsletter-worthy highlight
 (`has_publishable_content`); `options["force_generate"]` and `options["skip_generate"]`
-override that. `store` always persists the `DecisionReport` (JSON + executive summary) next
-to the assets, under `decisions/`.
+override that. `store` always persists the `DecisionReport` (JSON + executive summary) under
+`decisions/` and the enriched analysis under `analysis/`, next to the assets.
 
 ```python
 from src.orchestration import compile_pipeline, initial_state, summarize_state
