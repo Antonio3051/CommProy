@@ -14,9 +14,9 @@ communitylab/
 │   ├── analysis/       # Sentiment, themes, relevance + consolidator
 │   ├── prompts/        # System prompts for analysis and copywriting
 │   ├── orchestration/  # LangGraph graphs wiring the pipeline together
-│   ├── generators/     # Content generators (summaries, FAQs, posts)
+│   ├── generators/     # Content generators (LinkedIn, newsletter, FAQ, testimonials)
 │   ├── decisions/      # Decision engine: member risk, recurring topics, escalation
-│   ├── oci/            # Oracle Cloud Infrastructure integrations
+│   ├── oci/            # Oracle Cloud Infrastructure integrations (Object Storage)
 │   ├── interface/      # Streamlit UI
 │   ├── api/            # HTTP API layer
 │   ├── bot/            # Discord / Slack bot adapters
@@ -173,15 +173,72 @@ Key defaults (all overridable through `DecisionConfig`):
 ```python
 from src.decisions import DecisionEngine
 
-report = DecisionEngine().run(enriched)          # enriched: list[EnrichedMessage]
+report = DecisionEngine().run(enriched)  # enriched: list[EnrichedMessage]
 print(report.executive_summary)
 for action in report.urgent_actions:
     print(action.level, action.owner, action.title)
-for note in report.notifications:                 # ready for Slack/Discord/n8n
+for note in report.notifications:  # ready for Slack/Discord/n8n
     print(note.target, note.title)
 ```
 
 ```bash
 python scripts/analyze_sample.py --json /tmp/enriched.json   # Groq step (needs GROQ_API_KEY)
 python scripts/decide_sample.py /tmp/enriched.json --notifications
+```
+
+## Content generators
+
+`src/generators/` turns analysed messages into publishable assets using the Phase 2
+copywriting prompts (`get_copywriting_prompt(channel)`). Every generator is a
+`ContentGenerator[Schema]`: it renders a *brief* (context + the source messages with
+their sentiment/themes/relevance) under the channel's system prompt and asks the Groq
+model for a structured Pydantic answer, so the output shape is always predictable.
+
+| Module            | Output model        | Selection logic                                                        |
+| ----------------- | ------------------- | ---------------------------------------------------------------------- |
+| `linkedin.py`     | `LinkedInPost`      | `success_story` messages or ones suggested for LinkedIn; never negative. |
+| `newsletter.py`   | `NewsletterSection` | Relevance ≥ `medium`, ordered questions/complaints → wins → resources.  |
+| `faq.py`          | `FAQEntry`          | One entry per R2 `RecurringTopic` with a `faq*` action, replies included. |
+| `testimonials.py` | `Testimonial`       | Clearly positive (score ≥ 0.3) stories; flags `needs_consent`.          |
+
+Each call returns a `GeneratedAsset` (channel, title, structured `content`, rendered
+`markdown`, `source_message_ids`, `metadata`) whose `filename()` doubles as the storage
+object name (`<channel>/<timestamp>-<slug>.<ext>`). Failures raise `GenerationError`;
+`generate_many()` logs and skips them unless `raise_on_error=True`.
+
+```python
+from src.generators import FAQGenerator, LinkedInGenerator, NewsletterGenerator, TestimonialGenerator
+
+posts = LinkedInGenerator().generate_many(enriched, limit=3)
+section = NewsletterGenerator().generate(enriched, community_name="DataLab", language="es")
+faqs = FAQGenerator().generate_many(report.recurring_topics, enriched)  # report: DecisionReport
+quotes = TestimonialGenerator().generate_many(enriched)
+```
+
+## OCI Object Storage
+
+`src/oci/storage.py` uploads assets (Markdown + JSON, or any text/bytes) to the bucket
+**`communitylab-activos-marketing`**. `AssetStorage` builds an `ObjectStorageClient` from
+the standard OCI config (`~/.oci/config` / `$OCI_CONFIG_FILE`, profile `$OCI_CONFIG_PROFILE`);
+when the credentials are missing or invalid, or an upload raises, the same bytes are written
+to `data/communitylab-activos-marketing/<object-name>` and the `UploadResult` reports
+`backend="local"` plus a `fallback_reason`. Nothing is ever lost and local dev never needs
+OCI.
+
+```python
+from src.oci import AssetStorage, StorageSettings
+
+storage = AssetStorage()  # OCI if configured, else data/
+results = storage.upload_assets(posts + faqs)  # .md + .json per asset
+storage.upload_json(report.model_dump(mode="json"), "decisions/report.json")
+forced_local = AssetStorage(StorageSettings(force_local=True))
+```
+
+Environment knobs: `COMMUNITYLAB_BUCKET`, `OCI_NAMESPACE` (skips the namespace lookup),
+`OCI_CONFIG_FILE`, `OCI_CONFIG_PROFILE`, `COMMUNITYLAB_FORCE_LOCAL=1`. Pass a pre-built
+`client=` (e.g. instance-principal signer) to bypass the config file.
+
+```bash
+python scripts/generate_sample.py /tmp/enriched.json               # all channels, OCI or local
+python scripts/generate_sample.py /tmp/enriched.json --only faq --language es --local
 ```
