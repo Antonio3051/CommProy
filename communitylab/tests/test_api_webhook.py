@@ -73,7 +73,7 @@ class TestEndpoints:
         summary = response.json()["summary"]
         assert summary["source"] == "discord" and summary["validated"] == len(discord_payload)
         assert summary["generated_assets"] == []
-        assert [s["location"].split("/")[-2] for s in summary["stored"]] == ["decisions", "decisions"]
+        assert [s["location"].split("/")[-2] for s in summary["stored"]] == ["decisions", "decisions", "analysis"]
 
     def test_webhook_slack_and_generic(self, client: TestClient, slack_payload: dict[str, Any]):
         slack = client.post("/webhook/slack", json={"payload": slack_payload, "channel": "help"})

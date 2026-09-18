@@ -271,6 +271,7 @@ class TestNodes:
         assert names[:2] == ["faq/" + asset.filename("md").split("/")[1], "faq/" + asset.filename("json").split("/")[1]]
         assert names[2].startswith("decisions/") and names[2].endswith("-abc-report.json")
         assert names[3].endswith("-abc-summary.md")
+        assert names[4].startswith("analysis/") and names[4].endswith("-abc-enriched.json")
         assert all(r.backend == "local" for r in out["storage_results"])
         assert (tmp_path / "bucket" / names[2]).exists()
         assert out["finished_at"].tzinfo is not None
@@ -293,7 +294,7 @@ class TestEndToEnd:
         channels = {a.channel for a in final["generated_assets"]}
         assert {"linkedin", "testimonial", "newsletter"} <= channels
         stored = final["storage_results"]
-        assert len(stored) == 2 * len(final["generated_assets"]) + 2
+        assert len(stored) == 2 * len(final["generated_assets"]) + 3
         assert any(r.object_name.endswith("-e2e-report.json") for r in stored)
         assert (tmp_path / "bucket" / "decisions").is_dir()
         assert final["errors"] == []
@@ -310,7 +311,7 @@ class TestEndToEnd:
         )
         final = compile_pipeline(comps).invoke(initial_state("json", sample_path, run_id="noise"))
         assert "generated_assets" not in final
-        assert [r.object_name.split("/")[0] for r in final["storage_results"]] == ["decisions", "decisions"]
+        assert [r.object_name.split("/")[0] for r in final["storage_results"]] == ["decisions", "decisions", "analysis"]
 
     def test_run_pipeline_with_discord_payload(self, components: PipelineComponents, discord_payload):
         final = run_pipeline(

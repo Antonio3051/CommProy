@@ -269,7 +269,7 @@ def make_generate_node(components: PipelineComponents) -> Any:
 
 
 def make_store_node(components: PipelineComponents) -> Any:
-    """Node 5: persist generated assets and the decision report (OCI or ``data/`` fallback)."""
+    """Node 5: persist assets, the decision report and the enriched analysis (OCI or ``data/`` fallback)."""
 
     def store(state: State) -> State:
         options = state.get("options", {})
@@ -281,9 +281,11 @@ def make_store_node(components: PipelineComponents) -> Any:
             report = state.get("decisions")
             if report is not None and options.get("store_decisions", True):
                 stamp = report.generated_at.strftime("%Y%m%d-%H%M%S")
-                base = f"decisions/{stamp}-{state.get('run_id', 'run')}"
-                results.append(storage.upload_json(report.model_dump(mode="json"), f"{base}-report.json"))
-                results.append(storage.upload_text(report.executive_summary, f"{base}-summary.md"))
+                name = f"{stamp}-{state.get('run_id', 'run')}"
+                results.append(storage.upload_json(report.model_dump(mode="json"), f"decisions/{name}-report.json"))
+                results.append(storage.upload_text(report.executive_summary, f"decisions/{name}-summary.md"))
+                records = [item.to_record() for item in state.get("analysis_results", [])]
+                results.append(storage.upload_json(records, f"analysis/{name}-enriched.json"))
         except Exception as exc:  # noqa: BLE001 - storage must never crash the graph
             logger.error("Storage failed: %s", exc)
             errors.append(f"store: {exc}")
