@@ -242,3 +242,59 @@ Environment knobs: `COMMUNITYLAB_BUCKET`, `OCI_NAMESPACE` (skips the namespace l
 python scripts/generate_sample.py /tmp/enriched.json               # all channels, OCI or local
 python scripts/generate_sample.py /tmp/enriched.json --only faq --language es --local
 ```
+
+## Orchestration (LangGraph)
+
+`src/orchestration/router.py` wires the layers above into one compiled `StateGraph`:
+
+```
+START ─▶ ingest ─┬─(no valid rows)─▶ END
+                 └─▶ analyze ─▶ decide ─┬─(nothing to publish)─▶ store ─▶ END
+                                        └─▶ generate ─▶ store ─▶ END
+```
+
+| Node | Module(s) | Writes to `State` |
+|------|-----------|-------------------|
+| `ingest` | `ingest.load` → `normalize` → `validate` | `raw_data`, `validated_data`, `validation_errors` |
+| `analyze` | `Consolidator` (sentiment + themes + relevance) | `analysis_results` |
+| `decide` | `DecisionEngine` (R1–R3) | `decisions` |
+| `generate` | LinkedIn / newsletter / FAQ / testimonial generators | `generated_assets` |
+| `store` | `AssetStorage` (OCI or local fallback) | `storage_results`, `finished_at` |
+
+`State` is a `TypedDict` holding `raw_data`, `validated_data`, `analysis_results`, `decisions`
+and `generated_assets` (plus run metadata, `options` and an append-only `errors` channel).
+`generate` runs only when the Decision Engine flags an R2 topic for a FAQ, or the analysis
+contains a success story / testimonial candidate / newsletter-worthy highlight
+(`has_publishable_content`); `options["force_generate"]` and `options["skip_generate"]`
+override that. `store` always persists the `DecisionReport` (JSON + executive summary) next
+to the assets, under `decisions/`.
+
+```python
+from src.orchestration import compile_pipeline, initial_state, summarize_state
+
+graph = compile_pipeline()  # Groq analyzers/generators + OCI storage; pass PipelineComponents(...) to inject fakes
+final = graph.invoke(initial_state("json", "data/sample/messages.json", options={"language": "es"}))
+print(summarize_state(final)["executive_summary"])
+```
+
+```bash
+python scripts/run_pipeline.py data/sample/messages.json --local            # full run, local storage
+python scripts/run_pipeline.py export.csv --source csv --channels faq --skip-generate
+```
+
+## API and bot stubs
+
+`src/api/webhook.py` exposes the graph over HTTP (FastAPI; the graph is compiled lazily on the
+first request so importing the app needs no credentials):
+
+```bash
+uvicorn src.api.webhook:app --reload
+curl -X POST localhost:8000/webhook/discord -H 'content-type: application/json' \
+     -d '{"payload": [...discord messages...], "channel": "general", "options": {"language": "es"}}'
+curl -X POST 'localhost:8000/runs?async=true' -d '{"source": "json", "path": "data/sample/messages.json"}'
+curl localhost:8000/runs/<run_id>
+```
+
+`src/bot/discord_stub.py` reserves the Discord bot slot: `DiscordBotStub` buffers `on_message`
+events, flushes them through the pipeline (`source="discord"`) every `batch_size` messages or on
+`!flush`, and formats a staff digest. No `discord.py` dependency yet.
